@@ -1,38 +1,32 @@
 from backend.workers.celery_app import celery
-from backend.sandbox.tool_executor import execute_security_tests
-from backend.security.cvss_engine import compute_cvss
-from backend.ai.remediation_engine import generate_remediation
-from backend.reporting.report_generator import generate_report
-
-from backend.database.database import SessionLocal
-from backend.database.models import ScanResult, ScanJob
+import subprocess
 
 
-@celery.task
-def run_scan_task(job_id, path):
+@celery.task(name="run_scan_task")
+def run_scan_task(job_id, file_path):
 
-    db = SessionLocal()
+    results = []
 
-    job = db.query(ScanJob).get(job_id)
+    tools = [
+        ["bandit", "-r", file_path],
+        ["semgrep", "--config=auto", file_path]
+    ]
 
-    results = execute_security_tests(path, job.detected_language)
+    for tool in tools:
 
-    score = compute_cvss(results)
+        process = subprocess.run(
+            tool,
+            capture_output=True,
+            text=True
+        )
 
-    remediation = generate_remediation(results)
+        results.append({
+            "tool": tool[0],
+            "stdout": process.stdout,
+            "stderr": process.stderr
+        })
 
-    record = ScanResult(
-        job_id=job_id,
-        result=str(results),
-        ai_remediation=remediation,
-        cvss_score=str(score)
-    )
-
-    job.status = "completed"
-
-    db.add(record)
-    db.commit()
-
-    generate_report(job_id, results, remediation, score)
-
-    db.close()
+    return {
+        "job_id": job_id,
+        "results": results
+    }

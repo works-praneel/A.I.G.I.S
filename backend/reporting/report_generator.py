@@ -3,9 +3,13 @@ from backend.database.database import SessionLocal
 from backend.database.models import Report
 
 
-def generate_report(job_id, results, remediation, score):
+def generate_report(job_id, vulnerabilities, remediation):
 
-    path = export_pdf(job_id, results, remediation, score)
+    path = export_pdf(
+        job_id=job_id,
+        vulnerabilities=vulnerabilities,
+        remediation=remediation
+    )
 
     db = SessionLocal()
 
@@ -16,5 +20,7 @@ def generate_report(job_id, results, remediation, score):
 
     db.add(report)
     db.commit()
-
+    db.refresh(report)
     db.close()
+
+    return path

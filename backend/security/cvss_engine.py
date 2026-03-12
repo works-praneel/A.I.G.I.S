@@ -1,24 +1,42 @@
-def compute_cvss(results):
+def calculate_cvss_base_score(vuln):
+    """
+    CVSS v3.1 simplified base score calculation.
+    """
 
-    score = 0
+    severity_map = {
+        "critical": 9.8,
+        "high": 8.0,
+        "medium": 5.5,
+        "low": 3.1,
+        "info": 0.0
+    }
 
-    for r in results:
+    severity = vuln.get("severity", "low").lower()
 
-        output = r["output"].lower()
+    return severity_map.get(severity, 3.1)
 
-        if "critical" in output:
-            score += 9
 
-        elif "high" in output:
-            score += 7
+def score_vulnerabilities(vulnerabilities):
 
-        elif "medium" in output:
-            score += 5
+    scored = []
 
-        elif "low" in output:
-            score += 2
+    for vuln in vulnerabilities:
 
-    if score > 10:
-        score = 10
+        score = calculate_cvss_base_score(vuln)
 
-    return score
+        vuln["cvss_score"] = round(score, 1)
+
+        if score >= 9.0:
+            vuln["cvss_rating"] = "Critical"
+        elif score >= 7.0:
+            vuln["cvss_rating"] = "High"
+        elif score >= 4.0:
+            vuln["cvss_rating"] = "Medium"
+        elif score > 0:
+            vuln["cvss_rating"] = "Low"
+        else:
+            vuln["cvss_rating"] = "None"
+
+        scored.append(vuln)
+
+    return scored

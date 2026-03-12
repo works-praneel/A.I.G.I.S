@@ -6,7 +6,7 @@ from backend.workers.tasks import run_scan_task
 from backend.orchestrator.input_detector import detect_input_type
 
 
-UPLOAD_DIR = "/tmp/aigis_uploads"
+UPLOAD_DIR = "/app/uploads"
 
 
 async def create_scan_job(file, db):
@@ -20,18 +20,19 @@ async def create_scan_job(file, db):
     with open(path, "wb") as f:
         f.write(await file.read())
 
-    input_type, language = detect_input_type(path)
+    input_type = detect_input_type(path)
 
     job = ScanJob(
         input_name=filename,
         input_type=input_type,
-        detected_language=language,
+        detected_language=input_type,
         status="queued"
     )
 
     db.add(job)
     db.commit()
+    db.refresh(job)
 
-    run_scan_task.delay(job.id, path)
+    run_scan_task.delay(path)
 
     return job

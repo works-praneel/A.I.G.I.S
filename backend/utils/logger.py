@@ -1,10 +1,25 @@
 import logging
 
-def get_logger():
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+def get_logger(name: str = "aigis"):
+    """
+    Returns a configured logger instance.
+    """
 
-    return logging.getLogger("AIGIS")
+    logger = logging.getLogger(name)
+
+    if not logger.handlers:
+
+        logger.setLevel(logging.INFO)
+
+        handler = logging.StreamHandler()
+
+        formatter = logging.Formatter(
+            "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+        )
+
+        handler.setFormatter(formatter)
+
+        logger.addHandler(handler)
+
+    return logger

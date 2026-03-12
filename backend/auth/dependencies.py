@@ -7,7 +7,8 @@ from backend.database.database import get_db
 from backend.database.models import User
 from backend.config import settings
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/auth/login")
+# OAuth2 scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def get_current_user(
@@ -16,23 +17,43 @@ def get_current_user(
 ):
 
     try:
+        # Decode JWT
         payload = jwt.decode(
             token,
             settings.SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM]
         )
 
-        user_id = payload.get("sub")
+        # TEMP DEBUG
+        print("=== JWT TOKEN RECEIVED ===")
+        print("RAW TOKEN:", token)
+        print("DECODED PAYLOAD:", payload)
 
-    except Exception:
+        username = payload.get("sub")
+
+        if username is None:
+            print("ERROR: 'sub' field missing in token payload")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload"
+            )
+
+    except Exception as e:
+        print("JWT DECODE ERROR:", str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token"
         )
 
-    user = db.query(User).get(user_id)
+    # Query user
+    user = db.query(User).filter(User.username == username).first()
 
-    if not user:
+    # TEMP DEBUG
+    print("=== USER LOOKUP ===")
+    print("USERNAME FROM TOKEN:", username)
+    print("USER FOUND IN DB:", user)
+
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"

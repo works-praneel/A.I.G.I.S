@@ -1,34 +1,45 @@
-import magic
+import os
 import re
 
 
-def detect_input_type(path):
+def detect_input_type(target: str):
+    """
+    Detect the type of scan target.
+    Returns one of:
+    web | project | python | javascript | java | c_cpp | ruby | go | binary
+    """
 
-    mime = magic.from_file(path, mime=True)
+    # Detect URL targets
+    if isinstance(target, str) and re.match(r"^https?://", target):
+        return "web"
 
-    if "text" in mime:
+    # Detect directories (project scans)
+    if os.path.isdir(target):
+        return "project"
 
-        with open(path) as f:
-            content = f.read()
+    # Detect file types
+    ext = os.path.splitext(target)[1].lower()
 
-        if "import" in content and "def" in content:
-            return "source", "python"
+    mapping = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "javascript",
+        ".jsx": "javascript",
+        ".java": "java",
+        ".c": "c_cpp",
+        ".cpp": "c_cpp",
+        ".cc": "c_cpp",
+        ".h": "c_cpp",
+        ".hpp": "c_cpp",
+        ".rb": "ruby",
+        ".go": "go",
+        ".php": "web",
+        ".html": "web",
+        ".htm": "web",
+    }
 
-        if "package" in content:
-            return "source", "java"
+    if ext in mapping:
+        return mapping[ext]
 
-        return "source", "unknown"
-
-    if "executable" in mime:
-        return "binary", "elf"
-
-    return "unknown", "unknown"
-
-
-def is_url(target):
-
-    pattern = re.compile(
-        r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
-    )
-
-    return pattern.match(target)
+    # Default fallback
+    return "binary"

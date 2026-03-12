@@ -1,12 +1,13 @@
 import yaml
 from backend.utils.yaml_loader import load_yaml
 
-
-TOOLS_CONFIG = "config/tools.yaml"
+TOOLS_CONFIG = "backend/config/tools.yaml"
 
 
 def get_tools(language):
 
     config = load_yaml(TOOLS_CONFIG)
 
-    return config["engines"].get(language, [])
+    engines = config.get("engines", {})
+
+    return engines.get(language, [])

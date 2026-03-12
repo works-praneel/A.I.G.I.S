@@ -1,7 +1,6 @@
 version: "3.9"
 
 services:
-
   postgres:
     image: postgres:15
     container_name: aigis-postgres
@@ -27,13 +26,15 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli","ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: aigis-backend
     restart: always
     ports:
@@ -43,27 +44,36 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./uploads:/app/uploads
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
       REDIS_URL: redis://redis:6379/0
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: llama3
 
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
     container_name: aigis-worker
     command: celery -A backend.workers.celery_app:celery worker --loglevel=info
     restart: always
     depends_on:
       - backend
       - redis
+      - ollama
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./uploads:/app/uploads
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
       REDIS_URL: redis://redis:6379/0
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: llama3
 
   ollama:
     image: ollama/ollama

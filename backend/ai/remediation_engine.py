@@ -2,17 +2,9 @@ from backend.ai.ollama_client import query_llm
 
 
 def generate_remediation(results):
-
     prompt = f"""
-    Analyze the following security scan findings.
+Explain these security issues briefly and give fixes.
 
-    {results}
-
-    Provide:
-    - explanation
-    - severity
-    - mitigation
-    - secure coding fixes
-    """
-
+{results[:2]}
+"""
     return query_llm(prompt)

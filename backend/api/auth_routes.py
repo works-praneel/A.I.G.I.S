@@ -8,7 +8,7 @@ from backend.database.models import User
 from backend.auth.password import hash_password, verify_password
 from backend.auth.jwt_handler import create_access_token
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(tags=["auth"])
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

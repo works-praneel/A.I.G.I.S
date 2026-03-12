@@ -1,12 +1,17 @@
 from celery import Celery
-from backend.config import settings
 
 celery = Celery(
     "aigis",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker="redis://redis:6379/0",
+    backend="redis://redis:6379/0"
 )
 
-celery.conf.task_routes = {
-    "workers.tasks.*": {"queue": "scans"}
-}
+celery.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+)
+
+celery.autodiscover_tasks(["backend.workers"])

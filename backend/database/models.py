@@ -80,3 +80,21 @@ class WorkerNode(Base):
     hostname = Column(String)
     status = Column(String)
     last_heartbeat = Column(DateTime)
+
+from sqlalchemy import Column, Integer, String, JSON
+from .database import Base
+
+class User(Base):
+    __tablename__ = "users"
+    # This line prevents the 'InvalidRequestError' you saw in your screenshot
+    __table_args__ = {'extend_existing': True} 
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    
+    # "root" for admin, "user" for standard users
+    role = Column(String, default="user") 
+    
+    # List of allowed services: ["file_scan", "link_scan", "github_scan"]
+    permissions = Column(JSON, default=["link_scan"])

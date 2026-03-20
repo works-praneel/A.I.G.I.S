@@ -90,7 +90,18 @@ services:
       ollama pull llama3 &&
       wait
       "
-
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    container_name: aigis-frontend
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
 volumes:
   postgres_data:
   ollama_data:

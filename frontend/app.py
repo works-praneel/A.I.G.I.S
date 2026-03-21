@@ -13,7 +13,7 @@ try:
     from backend.database.models import User
     from backend.auth.password import verify_password, hash_password 
 except ImportError as e:
-    st.error(f"Import Error: {e}. Run from the project root folder.")
+    st.error(f"Import Error: {e}. Ensure you are running from the A.I.G.I.S root folder.")
 
 # --- 3. DATABASE HELPER ---
 def get_db():
@@ -46,7 +46,7 @@ def handle_login(email, password):
     try:
         user = db.query(User).filter(User.email == email).first()
         
-        # Security Note: [:72] handles the Bcrypt length limitation
+        # Security Note: [:72] handles the Bcrypt length limitation bug
         if user and verify_password(password[:72], user.hashed_password):
             st.session_state.update({
                 'logged_in': True,
@@ -60,29 +60,40 @@ def handle_login(email, password):
         else:
             st.error("Invalid email or password. Please try again.")
     except Exception as err:
-        st.error(f"Connection Error: {err}")
+        st.error(f"Database Connection Error: {err}")
     finally:
         db.close()
 
 # --- 6. MAIN UI LOGIC ---
 if not st.session_state.logged_in:
-    st.title("🛡️ A.I.G.I.S Authentication")
     
+    # --- LOGO SECTION ---
+    # Centering the logo using columns
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        # Assumes you saved the image as frontend/assets/logo.png
+        logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'logo.png')
+        if os.path.exists(logo_path):
+            st.image(logo_path, use_container_width=True)
+        else:
+            st.title("🛡️ A.I.G.I.S")
+            st.caption("Autonomous Guard & Inspection System")
+
     tab1, tab2 = st.tabs(["🔐 Login", "📝 Create Account"])
     
     # --- LOGIN TAB ---
     with tab1:
-        # DEVELOPMENT SHORTCUT
         st.info("Development Mode: Use the shortcut below to fill the login fields.")
+        
+        # PRE-FILL BUTTON (Manual password entry required)
         if st.button("🙋 Prepare Root Login", use_container_width=True):
             st.session_state.prefill_email = "subhaprakashjana@gmail.com"
             st.rerun() 
 
         st.markdown("---") 
 
-        # ACTUAL FORM
         with st.form("login_form"):
-            # Email is pre-filled if the button above was clicked
+            # Value is dynamically updated by the button above
             e = st.text_input("Email Address", value=st.session_state.prefill_email)
             p = st.text_input("Password", type="password", placeholder="Enter your secret key...")
             
@@ -95,7 +106,7 @@ if not st.session_state.logged_in:
     # --- REGISTRATION TAB ---
     with tab2:
         with st.form("signup_form"):
-            st.write("Register for the AIGIS Testing Framework")
+            st.write("Join the AIGIS Autonomous Testing Framework")
             ne = st.text_input("New Email")
             np = st.text_input("New Password", type="password")
             confirm_p = st.text_input("Confirm Password", type="password")
@@ -105,9 +116,9 @@ if not st.session_state.logged_in:
                     db = get_db()
                     try:
                         if db.query(User).filter(User.email == ne).first():
-                            st.error("Email already exists.")
+                            st.error("Email already registered.")
                         else:
-                            # Registration safety truncation
+                            # Hashing with safety truncation
                             hashed_pw = hash_password(np[:72]) 
                             new_user = User(
                                 email=ne, 
@@ -117,9 +128,9 @@ if not st.session_state.logged_in:
                             )
                             db.add(new_user)
                             db.commit()
-                            st.success("Account created! Switch to Login tab to enter.")
+                            st.success("Account created! You can now log in.")
                     except Exception as err:
-                        st.error(f"Error: {err}")
+                        st.error(f"Registration failed: {err}")
                     finally:
                         db.close()
                 else:
@@ -129,14 +140,21 @@ if not st.session_state.logged_in:
 else:
     # Sidebar Info
     st.sidebar.title("AIGIS Engine")
-    st.sidebar.markdown(f"**Logged in as:** `{st.session_state.user_email}`")
-    st.sidebar.markdown(f"**Access Level:** :red[{st.session_state.role.upper()}]")
+    
+    # Smaller logo for sidebar if desired
+    logo_path = os.path.join(os.path.dirname(__file__), 'assets', 'logo.png')
+    if os.path.exists(logo_path):
+        st.sidebar.image(logo_path, width=100)
+        
+    st.sidebar.markdown(f"**User:** `{st.session_state.user_email}`")
+    st.sidebar.markdown(f"**Role:** :red[{st.session_state.role.upper()}]")
     
     if st.sidebar.button("🚪 Logout", use_container_width=True):
+        # Clear all session data on logout
         st.session_state.clear()
         st.rerun()
 
-    # Route based on Role
+    # Dynamic Routing
     try:
         if st.session_state.role == "root":
             from frontend import root_dashboard

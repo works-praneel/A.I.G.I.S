@@ -1,11 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.scan_routes import router as scan_router
 from backend.database.database import engine
 from backend.database.models import Base
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
 import os
+
 # --- DATABASE INITIALIZATION ---
 # Automatically creates all tables defined in your models
 Base.metadata.create_all(bind=engine)
@@ -36,7 +36,8 @@ async def health_check():
 
 @app.get("/api/v1/scan/download/{job_id}")
 async def download_report(job_id: str):
-    # Path where the worker saves the PDF
+    """Bridge to serve files from the internal container to the user's browser."""
+    # Path where the worker saves the PDF inside the container
     report_path = f"/app/backend/reporting/reports/report_{job_id}.pdf"
     
     if os.path.exists(report_path):

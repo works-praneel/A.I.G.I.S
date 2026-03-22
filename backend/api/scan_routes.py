@@ -1,45 +1,99 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi.responses import FileResponse 
+from sqlalchemy.orm import Session
+from celery.result import AsyncResult
+from backend.workers.tasks import run_scan_task
+from backend.workers.celery_app import celery as celery_app
+from backend.database import models, database
 import os
 import uuid
-from backend.workers.tasks import run_scan_task
 
-# Full path for endpoints: /api/v1/scan/...
+# --- CONFIGURATION ---
 router = APIRouter(prefix="/scan", tags=["Scanning Engine"])
-
+get_db = database.get_db
 UPLOAD_DIR = "/app/uploads"
+# This path must match the shared Docker volume for reports
+REPORT_DIR = "/app/backend/reporting/reports"
 
 @router.post("/file")
-async def scan_file(file: UploadFile = File(...)):
-    """Receives a file, saves it, and dispatches a sandbox analysis task."""
+async def scan_file(user_id: int, file: UploadFile = File(...)):
+    """
+    Receives a file from the user and dispatches it to the Celery worker.
+    The user_id is passed so the history can be saved to the database.
+    """
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    
-    # Validation: Ensures the file is not empty (0.0B)
     content = await file.read()
     if not content or len(content) == 0:
-        raise HTTPException(status_code=400, detail="File is empty. No content to analyze.")
+        raise HTTPException(status_code=400, detail="File is empty.")
 
-    # Generate unique ID for the file to prevent collisions
+    # Generate a unique filename to prevent overwriting
     file_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
 
-    # Save the file to the local sandbox directory
     with open(file_path, "wb") as buffer:
         buffer.write(content)
 
-    # Dispatch to the Celery worker for actual analysis
-    run_scan_task.delay(file_path)
+    # Dispatch the task to the worker
+    task = run_scan_task.delay(file_path, user_id)
 
     return {
-        "risk_score": 0, 
-        "filename": file.filename,
-        "summary": "Sandbox initialized successfully.",
-        "report": f"File queued for analysis at {file_path}"
+        "job_id": task.id, 
+        "status": "queued",
+        "filename": file.filename
     }
 
-@router.post("/url")
-async def scan_url(data: dict):
-    return {"cvss_score": 0, "summary": "URL reputation analysis initiated."}
+@router.get("/status/{job_id}")
+async def get_scan_status(job_id: str):
+    """
+    Checks if the worker has finished the analysis.
+    Returns the full result (risk_score, etc.) once ready.
+    """
+    result = AsyncResult(job_id, app=celery_app)
+    
+    if result.ready():
+        # result.result contains the dict returned by run_scan_task
+        return result.result 
+    
+    return {"status": result.state}
 
-@router.post("/github")
-async def scan_github(data: dict):
-    return {"status": "Job Accepted", "code": 202}
+@router.get("/download/{job_id}")
+async def download_report(job_id: str):
+    """
+    Fetches the generated PDF report from the shared volume.
+    """
+    report_path = os.path.join(REPORT_DIR, f"report_{job_id}.pdf")
+    
+    if os.path.exists(report_path):
+        return FileResponse(
+            path=report_path,
+            filename=f"AIGIS_Security_Report_{job_id[:8]}.pdf",
+            media_type='application/pdf'
+        )
+    
+    raise HTTPException(
+        status_code=404, 
+        detail="Report file not found on server."
+    )
+
+@router.get("/history/me")
+def get_my_history(user_id: int, db: Session = Depends(get_db)):
+    """
+    Fetches scan history for the logged-in user.
+    """
+    return db.query(models.ScanHistory)\
+             .filter(models.ScanHistory.user_id == user_id)\
+             .order_by(models.ScanHistory.timestamp.desc())\
+             .all()
+
+@router.get("/history/all")
+def get_all_history(db: Session = Depends(get_db)):
+    """
+    ROOT ONLY: Fetches every scan in the system joined with the username.
+    """
+    return db.query(
+        models.ScanHistory.filename,
+        models.ScanHistory.risk_score,
+        models.ScanHistory.timestamp,
+        models.User.username.label("uploaded_by"),
+        models.ScanHistory.job_id
+    ).join(models.User).all()

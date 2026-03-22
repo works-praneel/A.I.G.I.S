@@ -49,6 +49,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./uploads:/app/uploads
+      - reports_data:/app/backend/reporting/reports # SHARED VOLUME
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
       REDIS_URL: redis://redis:6379/0
@@ -69,6 +70,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./uploads:/app/uploads
+      - reports_data:/app/backend/reporting/reports # SHARED VOLUME
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
       REDIS_URL: redis://redis:6379/0
@@ -102,6 +104,8 @@ services:
         condition: service_started
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
+
 volumes:
   postgres_data:
   ollama_data:
+  reports_data: # DECLARED SHARED VOLUME

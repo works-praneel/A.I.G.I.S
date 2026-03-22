@@ -37,6 +37,12 @@ def score_vulnerabilities(vulnerabilities):
         else:
             vuln["cvss_rating"] = "None"
 
+        # Ensure these fields always exist so report_generator
+        # never hits a KeyError regardless of which tool produced the finding
+        vuln.setdefault("location", "")
+        vuln.setdefault("test_id", "")
+        vuln.setdefault("description", "No description")
+
         scored.append(vuln)
 
     return scored

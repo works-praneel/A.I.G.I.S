@@ -1,13 +1,12 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt
+from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 
 from backend.database.database import get_db
 from backend.database.models import User
 from backend.config import settings
 
-# OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
@@ -15,43 +14,39 @@ def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
+    """
+    Extract and validate the JWT token from the request header.
+    Returns the User object for the authenticated user.
+
+    Fix: token is created with "sub": str(user.id)
+    so we query by ID not by username.
+    Previously this queried User.username == sub which always
+    returned None because sub contains the numeric ID string.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid authentication token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
     try:
-        # Decode JWT
         payload = jwt.decode(
             token,
             settings.SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM]
         )
 
-        # TEMP DEBUG
-        print("=== JWT TOKEN RECEIVED ===")
-        print("RAW TOKEN:", token)
-        print("DECODED PAYLOAD:", payload)
+        # sub contains str(user.id) — cast back to int for the query
+        user_id: str = payload.get("sub")
 
-        username = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
 
-        if username is None:
-            print("ERROR: 'sub' field missing in token payload")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token payload"
-            )
+    except JWTError:
+        raise credentials_exception
 
-    except Exception as e:
-        print("JWT DECODE ERROR:", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token"
-        )
-
-    # Query user
-    user = db.query(User).filter(User.username == username).first()
-
-    # TEMP DEBUG
-    print("=== USER LOOKUP ===")
-    print("USERNAME FROM TOKEN:", username)
-    print("USER FOUND IN DB:", user)
+    # Query by ID not by username
+    user = db.query(User).filter(User.id == int(user_id)).first()
 
     if user is None:
         raise HTTPException(
@@ -60,3 +55,18 @@ def get_current_user(
         )
 
     return user
+
+
+def get_current_user_optional(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    """
+    Same as get_current_user but returns None instead of
+    raising an exception. Used for endpoints that work both
+    authenticated and unauthenticated.
+    """
+    try:
+        return get_current_user(token=token, db=db)
+    except HTTPException:
+        return None

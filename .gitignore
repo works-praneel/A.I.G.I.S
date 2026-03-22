@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Environment variables — never commit secrets
+.env
+.env.local
+.env.production
+*.env
+
+# Docker — don't commit uploads or generated reports
+uploads/
+backend/reporting/reports/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+celery*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Alembic cache
+alembic/__pycache__/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Compiled extensions
+*.so
+*.dylib
+*.dll

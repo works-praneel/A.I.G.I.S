@@ -4,65 +4,67 @@ from backend.config import settings
 OLLAMA_GENERATE_URL = f"{settings.OLLAMA_HOST}/api/generate"
 OLLAMA_CHAT_URL = f"{settings.OLLAMA_HOST}/api/chat"
 
+# 90 seconds per call — enough for queue wait + generation
+# Previously 45s was too short when calls were parallel and queuing
+OLLAMA_TIMEOUT = 90
+
+
 def _extract_text(data: dict) -> str:
-    """Extract text from Ollama responses."""
-    # /api/generate format
     if isinstance(data, dict) and "response" in data:
         return data["response"]
-
-    # /api/chat format
     if isinstance(data, dict) and "message" in data:
         msg = data["message"]
         if isinstance(msg, dict) and "content" in msg:
             return msg["content"]
-
-    # error returned by Ollama
     if isinstance(data, dict) and "error" in data:
         return f"Ollama error: {data['error']}"
-
     return str(data)
 
+
 def query_llm(prompt: str) -> str:
-    # Model name updated to match docker-compose pull command
-    payload_generate = {
+    payload = {
         "model": "llama3:latest",
         "prompt": prompt,
-        "stream": False
+        "stream": False,
+        "options": {
+            # 300 tokens is enough for EXPLANATION + FIX + EXAMPLE
+            # Fewer tokens = faster generation
+            "num_predict": 300,
+            "temperature": 0.1,
+        }
     }
 
     try:
         r = requests.post(
             OLLAMA_GENERATE_URL,
-            json=payload_generate,
-            timeout=180
+            json=payload,
+            timeout=OLLAMA_TIMEOUT
         )
-
         r.raise_for_status()
-        data = r.json()
+        return _extract_text(r.json())
 
-        return _extract_text(data)
+    except requests.exceptions.Timeout:
+        return "AI remediation timed out."
 
     except Exception:
         # Fallback to chat API
-        payload_chat = {
-            "model": "llama3:latest",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-            "stream": False
-        }
-
         try:
             r = requests.post(
                 OLLAMA_CHAT_URL,
-                json=payload_chat,
-                timeout=180
+                json={
+                    "model": "llama3:latest",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "options": {
+                        "num_predict": 300,
+                        "temperature": 0.1,
+                    }
+                },
+                timeout=OLLAMA_TIMEOUT
             )
-
             r.raise_for_status()
-            data = r.json()
-
-            return _extract_text(data)
-
+            return _extract_text(r.json())
+        except requests.exceptions.Timeout:
+            return "AI remediation timed out."
         except Exception as e:
             return f"LLM request failed: {str(e)}"

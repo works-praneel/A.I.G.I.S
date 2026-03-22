@@ -1,36 +1,54 @@
-
 engines:
 
   python:
     - name: bandit
     - name: semgrep
+    - name: pylint
+    - name: safety
 
   javascript:
     - name: eslint
     - name: npm-audit
+    - name: retire
 
   java:
     - name: checkstyle
     - name: spotbugs
+    - name: pmd
 
   c_cpp:
     - name: cppcheck
     - name: flawfinder
+    - name: rats
 
   ruby:
     - name: brakeman
+    - name: bundler-audit
 
   go:
     - name: gosec
+    - name: staticcheck
+
+  web:
+    - name: nikto
+    - name: nmap
+    - name: whatweb
+    - name: wafw00f
+
+  php:
+    - name: phpcs
+    - name: psalm
+
+project:
+  - name: semgrep
+  - name: gitleaks
+  - name: trufflehog
 
 binary:
-
   - binwalk
   - strings
   - radare2
   - yara
-
-web:
-
-  - nikto
-  - nmap
+  - objdump
+  - checksec
+  - clamav

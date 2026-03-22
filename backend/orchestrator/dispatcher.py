@@ -12,9 +12,7 @@ TOOLS_CONFIG = "/app/config/tools.yaml"
 def dispatch(target):
 
     config = load_yaml(TOOLS_CONFIG)
-
     input_type = detect_input_type(target)
-
     tools = []
 
     if input_type in config.get("engines", {}):
@@ -23,35 +21,28 @@ def dispatch(target):
     if input_type == "binary":
         tools.extend(config.get("binary", []))
 
-    if input_type == "web":
-        tools.extend(config.get("web", []))
+    if input_type == "project":
+        project_tools = config.get("project", [])
+        tools.extend([e["name"] for e in project_tools])
+
+    if not tools:
+        return [{"tool": "none", "output": {
+            "error": f"No tools configured for input type: {input_type}"
+        }}]
 
     results = []
 
     with ThreadPoolExecutor(max_workers=6) as executor:
-
         futures = {
             executor.submit(execute_tool, tool, target): tool
             for tool in tools
         }
-
         for future in as_completed(futures):
-
             tool = futures[future]
-
             try:
                 output = future.result()
-
-                results.append({
-                    "tool": tool,
-                    "output": output
-                })
-
+                results.append({"tool": tool, "output": output})
             except Exception as e:
-
-                results.append({
-                    "tool": tool,
-                    "output": str(e)
-                })
+                results.append({"tool": tool, "output": {"error": str(e)}})
 
     return results

@@ -1,6 +1,7 @@
 version: "3.9"
 
 services:
+
   postgres:
     image: postgres:15
     container_name: aigis-postgres
@@ -49,6 +50,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./uploads:/app/uploads
+      - reports_data:/app/reports
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
       REDIS_URL: redis://redis:6379/0
@@ -69,11 +71,25 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./uploads:/app/uploads
+      - reports_data:/app/reports
     environment:
       DATABASE_URL: postgresql://aigis:aigis@postgres:5432/aigis
       REDIS_URL: redis://redis:6379/0
       OLLAMA_HOST: http://ollama:11434
       OLLAMA_MODEL: llama3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend.Dockerfile
+    container_name: aigis-frontend
+    restart: always
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    environment:
+      BACKEND_URL: http://backend:8000
 
   ollama:
     image: ollama/ollama
@@ -94,3 +110,4 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  reports_data:

@@ -31,7 +31,7 @@ def run_scan_task(self, file_path: str, user_id: int):
         scored_vulnerabilities = score_vulnerabilities(vulnerabilities)
 
         # 3. CALCULATE THREAT LEVEL (0-100%)
-        total_cvss = sum([v.get('cvss', 0) for v in scored_vulnerabilities])
+        total_cvss = sum([float(v.get('cvss', 0)) for v in scored_vulnerabilities])
         final_score = min(float(total_cvss), 100.0)
         
         # 4. AI REMEDIATION (Llama3)
@@ -46,7 +46,6 @@ def run_scan_task(self, file_path: str, user_id: int):
         )
 
         # 6. SAVE TO POSTGRESQL HISTORY
-        # This makes the "My History" tab work
         new_history = models.ScanHistory(
             job_id=self.request.id,
             filename=os.path.basename(file_path),
@@ -65,13 +64,16 @@ def run_scan_task(self, file_path: str, user_id: int):
             "risk_score": final_score,
             "report": report_path,
             "vulnerabilities": len(scored_vulnerabilities),
+            "vulnerabilities_list": scored_vulnerabilities, 
             "job_id": self.request.id
         }
 
     except Exception as e:
-        db.rollback()
+        if db:
+            db.rollback()
         logger.error(f"[AIGIS] Critical Task Failure: {str(e)}")
         return {"status": "failed", "error": str(e)}
     
     finally:
-        db.close() # Clean up the database connection
+        if db:
+            db.close()

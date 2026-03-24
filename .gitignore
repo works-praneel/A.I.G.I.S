@@ -23,9 +23,10 @@ ENV/
 .env.production
 *.env
 
-# Docker — don't commit uploads or generated reports
+# Docker — don't commit uploads or generated reports or ollama models
 uploads/
 backend/reporting/reports/
+ollama_models/
 
 # Database
 *.db

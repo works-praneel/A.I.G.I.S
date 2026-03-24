@@ -42,25 +42,26 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ollama_data:/root/.ollama
-    entrypoint: >
-      /bin/sh -c "
-        ollama serve &
-        echo '[AIGIS] Waiting for Ollama to start...' &&
-        until curl -sf http://localhost:11434/api/tags > /dev/null; do sleep 2; done &&
-        echo '[AIGIS] Pulling llama3...' &&
-        ollama pull llama3 &&
-        echo '[AIGIS] llama3 ready.' &&
-        wait
-      "
+      # This saves the models directly to a folder in your project directory
+      - ./ollama_models:/root/.ollama
     healthcheck:
       test: ["CMD-SHELL", "ollama list | grep -q 'llama3'"]
       interval: 10s
       timeout:  5s
       retries:  30
-      start_period: 60s 
+      start_period: 60s
 
-  # ── Backend ─────────────────────────────────────────────────────────────────
+  ollama-pull:
+    image: ollama/ollama
+    container_name: ollama-pull
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    command: pull llama3
+    restart: on-failure
+    depends_on:
+      - ollama
+      
+# ── Backend ─────────────────────────────────────────────────────────────────
   backend:
     build:
       context:    .
@@ -86,7 +87,7 @@ services:
       OLLAMA_HOST:  http://ollama:11434
       OLLAMA_MODEL: llama3
 
-  # ── Worker ───────────────────────────────────────────────────────────────────
+# ── Worker ───────────────────────────────────────────────────────────────────
   worker:
     build:
       context:    .
@@ -109,7 +110,7 @@ services:
       OLLAMA_HOST:  http://ollama:11434
       OLLAMA_MODEL: llama3
 
-  # ── Frontend ─────────────────────────────────────────────────────────────────
+# ── Frontend ─────────────────────────────────────────────────────────────────
   frontend:
     build:
       context:    .
@@ -122,8 +123,9 @@ services:
       - backend
     environment:
       BACKEND_URL: http://backend:8000
+    volumes:                                 
+      - ./frontend:/app/frontend
 
 volumes:
   postgres_data:
-  ollama_data:
   reports_data:

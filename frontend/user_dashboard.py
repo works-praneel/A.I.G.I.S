@@ -86,20 +86,27 @@ def show_severity_table(vulnerabilities: list):
 
 # ── Background scan tracking ───────────────────────────────────────────────────
 
+def _save_jobs_to_cookie():
+    """Forces the active jobs list to save to the browser cookie immediately."""
+    if "cookies" in st.session_state:
+        import json
+        st.session_state.cookies["active_jobs"] = json.dumps(st.session_state.active_jobs)
+        st.session_state.cookies.save()
+
 def _get_active_jobs():
     if "active_jobs" not in st.session_state:
         st.session_state.active_jobs = {}
     return st.session_state.active_jobs
 
-
 def _set_active_job(scan_type: str, job_id: str):
     jobs = _get_active_jobs()
     jobs[scan_type] = job_id
-
+    _save_jobs_to_cookie()
 
 def _clear_active_job(scan_type: str):
     jobs = _get_active_jobs()
     jobs.pop(scan_type, None)
+    _save_jobs_to_cookie()
 
 
 def _check_job_status(job_id: str) -> dict:
@@ -153,7 +160,10 @@ def poll_until_complete(job_id: str, scan_type: str = "file"):
             status_text.error(f"Cancel error: {e}")
         return None
 
-    stage_index = 0
+    # Retrieve saved stage index to prevent progress bar resetting on navigation
+    stage_key = f"stage_{job_id}"
+    if stage_key not in st.session_state:
+        st.session_state[stage_key] = 0
 
     while True:
         data = _check_job_status(job_id)
@@ -166,12 +176,14 @@ def poll_until_complete(job_id: str, scan_type: str = "file"):
             progress_bar.empty()
             status_text.empty()
             _clear_active_job(scan_type)
+            st.session_state.pop(stage_key, None)
             return data.get("result", {})
 
         elif backend_status == "failed":
             progress_bar.empty()
             status_text.empty()
             _clear_active_job(scan_type)
+            st.session_state.pop(stage_key, None)
             result = data.get("result", {})
             st.error(
                 f"Scan failed: {result.get('error', data.get('error', 'Unknown error'))}"
@@ -179,9 +191,12 @@ def poll_until_complete(job_id: str, scan_type: str = "file"):
             return None
 
         elif backend_status in ("pending", "running"):
-            if stage_index < len(SCAN_STAGES) - 2:
-                stage_index += 1
-            pct, label = SCAN_STAGES[stage_index]
+            idx = st.session_state[stage_key]
+            if idx < len(SCAN_STAGES) - 2:
+                st.session_state[stage_key] += 1
+                idx = st.session_state[stage_key]
+            
+            pct, label = SCAN_STAGES[idx]
             progress_bar.progress(pct)
             status_text.warning(f"{label}  —  Job: `{job_id[:8]}`")
             time.sleep(5)
@@ -340,7 +355,6 @@ def page_file_scan():
                 st.error("Cannot connect to backend.")
             except Exception as e:
                 st.error(f"Error: {e}")
-
 
 def page_zip_scan():
     st.header("🗜️ ZIP Archive Scan")
@@ -502,23 +516,38 @@ def page_repo_scan():
 
     repo_input = st.text_input(
         "Repository URL",
-        placeholder="https://github.com/owner/repo"
+        placeholder="https://github.com/owner/repo/tree/main"
     )
     branch_input = st.text_input(
-        "Branch", value="main", placeholder="main"
+        "Branch (Optional - Overridden if URL contains /tree/)", 
+        value="main", 
+        placeholder="main"
     )
+    
     if repo_input:
         if st.button("🚀 Start Repository Scan", use_container_width=True):
             st.warning(
                 "Repository scans take several minutes "
                 "depending on repo size."
             )
+            
+            # --- AUTO BRANCH DETECTION LOGIC ---
+            final_repo_url = repo_input
+            final_branch = branch_input or "main"
+            
+            if "/tree/" in repo_input:
+                parts = repo_input.split("/tree/")
+                final_repo_url = parts[0]
+                final_branch = parts[1].split("/")[0]
+                st.info(f"🔍 Auto-detected branch: **{final_branch}**")
+            # -----------------------------------
+            
             try:
                 resp = requests.post(
                     f"{BACKEND_URL}/api/scan/repository",
                     json={
-                        "repo_url": repo_input,
-                        "branch": branch_input or "main"
+                        "repo_url": final_repo_url,
+                        "branch": final_branch
                     },
                     headers=auth_headers(),
                     timeout=30
@@ -668,17 +697,27 @@ def show():
 
     show_active_jobs_banner()
 
+    # Determine current page from URL params for persistence on refresh
+    pages = [
+        "🏠 Overview",
+        "📁 File Scan",
+        "🗜️ ZIP Scan",
+        "🌐 URL Scan",
+        "📦 Repository Scan",
+        "📜 My Reports"
+    ]
+    
+    current_page = st.query_params.get("page", "🏠 Overview")
+    default_idx = pages.index(current_page) if current_page in pages else 0
+
     page = st.sidebar.radio(
         "Navigation",
-        [
-            "🏠 Overview",
-            "📁 File Scan",
-            "🗜️ ZIP Scan",
-            "🌐 URL Scan",
-            "📦 Repository Scan",
-            "📜 My Reports"
-        ]
+        pages,
+        index=default_idx
     )
+    
+    # Save selected page to URL params
+    st.query_params["page"] = page
 
     if page == "🏠 Overview":
         st.subheader("Welcome to A.I.G.I.S")

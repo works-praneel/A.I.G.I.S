@@ -15,20 +15,30 @@ def show():
         f"Logged in as **{st.session_state.username}** (Administrator)"
     )
 
+    # Determine current page from URL params for persistence on refresh
+    pages = [
+        "🏠 Overview",
+        "📁 File Scan",
+        "🗜️ ZIP Scan",
+        "🌐 URL Scan",
+        "📦 Repository Scan",
+        "📜 My Reports",
+        "👥 Users",
+        "📊 All Scans",
+        "📄 All Reports"
+    ]
+    
+    current_page = st.query_params.get("admin_page", "🏠 Overview")
+    default_idx = pages.index(current_page) if current_page in pages else 0
+
     page = st.sidebar.radio(
         "Admin Navigation",
-        [
-            "🏠 Overview",
-            "📁 File Scan",
-            "🗜️ ZIP Scan",
-            "🌐 URL Scan",
-            "📦 Repository Scan",
-            "📜 My Reports",
-            "👥 Users",
-            "📊 All Scans",
-            "📄 All Reports"
-        ]
+        pages,
+        index=default_idx
     )
+    
+    # Save selected page to URL params
+    st.query_params["admin_page"] = page
 
     # ── Scan pages shared from user_dashboard ─────────────────────────────────
     if page == "📁 File Scan":

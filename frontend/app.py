@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import time
 import os
+import json
+from streamlit_cookies_manager import EncryptedCookieManager
 
 BACKEND_URL = "http://backend:8000"
 
@@ -11,14 +13,62 @@ st.set_page_config(
     layout="wide"
 )
 
+# ── 1. Initialize Cookie Manager ───────────────────────────────────────────────
+cookies = EncryptedCookieManager(
+    prefix="aigis",
+    password="A_VERY_SECURE_STATIC_PASSWORD_FOR_DEMO"
+)
+
+# If the browser blocks the cookie component, give the user an escape hatch
+if not cookies.ready():
+    st.markdown("<br><br><br><h3 style='text-align: center;'>🛡️ Restoring A.I.G.I.S Session...</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888;'>Reading secure local vault...</p>", unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 2, 1])
+    if col.button("⚠️ Click here if stuck loading (Browser blocking cookies)", use_container_width=True):
+        st.session_state.bypass_cookies = True
+        st.rerun()
+        
+    if not st.session_state.get("bypass_cookies", False):
+        st.stop()
+
+st.session_state.cookies = cookies
+
+
+# ── 2. Sync Cookies to Session State ───────────────────────────────────────────
 if "logged_in" not in st.session_state:
-    st.session_state.update({
-        "logged_in": False,
-        "token": "",
-        "username": "",
-        "role": "",
-        "register_done": False,
-    })
+    saved_auth = cookies.get("auth_data") if cookies.ready() else None
+    saved_jobs = cookies.get("active_jobs") if cookies.ready() else None
+
+    if saved_auth:
+        try:
+            auth_data = json.loads(saved_auth)
+            st.session_state.update({
+                "logged_in": True,
+                "token": auth_data.get("token", ""),
+                "username": auth_data.get("username", ""),
+                "role": auth_data.get("role", ""),
+                "register_done": False,
+            })
+        except Exception:
+            pass
+    else:
+        st.session_state.update({
+            "logged_in": False,
+            "token": "",
+            "username": "",
+            "role": "",
+            "register_done": False,
+        })
+
+    if saved_jobs:
+        try:
+            st.session_state.active_jobs = json.loads(saved_jobs)
+        except Exception:
+            st.session_state.active_jobs = {}
+    else:
+        st.session_state.active_jobs = {}
 
 
 def auth_headers():
@@ -43,9 +93,16 @@ def handle_login(username: str, password: str):
                 "username": data.get("username", username),
                 "role": data.get("role", "user"),
             })
-            # Rerun clears the form naturally since the login
-            # page is no longer rendered
+            
+            if cookies.ready():
+                cookies["auth_data"] = json.dumps({
+                    "token": data["access_token"],
+                    "username": data.get("username", username),
+                    "role": data.get("role", "user"),
+                })
+                cookies.save()
             st.rerun()
+            
         elif response.status_code == 401:
             st.error("Incorrect username or password.")
         else:
@@ -82,7 +139,6 @@ def handle_register(username: str, password: str, confirm: str):
                 )
             else:
                 st.success("✅ Account created! Please log in.")
-            # Set flag so the form reruns and clears its fields
             st.session_state.register_done = True
             st.rerun()
         elif response.status_code == 400:
@@ -118,9 +174,6 @@ if not st.session_state.logged_in:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Register tab comes first now
-        # After register_done is set, rerun clears the form
-        # because Streamlit rebuilds the widget tree from scratch
         tab_register, tab_login = st.tabs(["📝 Register", "🔐 Login"])
 
         with tab_register:
@@ -129,21 +182,16 @@ if not st.session_state.logged_in:
                 "All subsequent accounts are standard users."
             )
 
-            # Using a key tied to register_done forces Streamlit to
-            # rebuild the form with empty fields after a successful
-            # registration — without this the fields stay filled
             form_key = (
                 "register_form_clean"
                 if st.session_state.register_done
                 else "register_form"
             )
 
-            # Show success banner if just registered
             if st.session_state.register_done:
                 st.success(
                     "✅ Account created! Switch to the Login tab to sign in."
                 )
-                # Reset the flag so the banner only shows once
                 st.session_state.register_done = False
 
             with st.form(form_key):
@@ -160,9 +208,6 @@ if not st.session_state.logged_in:
                     )
 
         with tab_login:
-            # login_attempt key forces a fresh form after each failed
-            # attempt if you want to clear it — for now the form clears
-            # naturally on successful login via st.rerun()
             with st.form("login_form"):
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
@@ -173,13 +218,26 @@ if not st.session_state.logged_in:
 
 # ── Logged in ──────────────────────────────────────────────────────────────────
 else:
+    
+    def perform_logout():
+        st.session_state.update({
+            "logged_in": False,
+            "token": "",
+            "username": "",
+            "role": "",
+            "active_jobs": {}
+        })
+        if cookies.ready():
+            cookies["auth_data"] = ""
+            cookies["active_jobs"] = ""
+            cookies.save()
+
     with st.sidebar:
         st.markdown(f"**User:** {st.session_state.username}")
         st.markdown(f"**Role:** `{st.session_state.role.upper()}`")
         st.markdown("---")
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
+        # Attach the logic to the on_click parameter
+        st.button("🚪 Logout", use_container_width=True, on_click=perform_logout)
 
     if st.session_state.role == "admin":
         from admin_dashboard import show as show_admin

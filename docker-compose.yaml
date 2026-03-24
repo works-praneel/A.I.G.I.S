@@ -2,6 +2,7 @@ version: "3.9"
 
 services:
 
+# ── PostgreSQL ─────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:15
     container_name: aigis-postgres
@@ -20,6 +21,7 @@ services:
       timeout:  5s
       retries:  5
 
+# ── Redis ─────────────────────────────────────────────────────────────────
   redis:
     image: redis:7
     container_name: aigis-redis
@@ -32,6 +34,7 @@ services:
       timeout:  5s
       retries:  5
 
+# ── Ollama ─────────────────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama
     container_name: ollama
@@ -51,14 +54,11 @@ services:
         wait
       "
     healthcheck:
-      # Only healthy once llama3 appears in /api/tags
-      test: >
-        ["CMD-SHELL",
-         "curl -sf http://localhost:11434/api/tags | grep -q 'llama3'"]
+      test: ["CMD-SHELL", "ollama list | grep -q 'llama3'"]
       interval: 10s
       timeout:  5s
       retries:  30
-      start_period: 60s   # give pull time to complete on first boot
+      start_period: 60s 
 
   # ── Backend ─────────────────────────────────────────────────────────────────
   backend:

@@ -84,6 +84,40 @@ def show_severity_table(vulnerabilities: list):
     ]))
 
 
+# ── Background scan tracking ───────────────────────────────────────────────────
+
+def _get_active_jobs():
+    if "active_jobs" not in st.session_state:
+        st.session_state.active_jobs = {}
+    return st.session_state.active_jobs
+
+
+def _set_active_job(scan_type: str, job_id: str):
+    jobs = _get_active_jobs()
+    jobs[scan_type] = job_id
+
+
+def _clear_active_job(scan_type: str):
+    jobs = _get_active_jobs()
+    jobs.pop(scan_type, None)
+
+
+def _check_job_status(job_id: str) -> dict:
+    try:
+        resp = requests.get(
+            f"{BACKEND_URL}/api/scan/status/{job_id}",
+            headers=auth_headers(),
+            timeout=15
+        )
+        if resp.status_code == 401:
+            st.error("Session expired. Please log in again.")
+            st.session_state.clear()
+            st.rerun()
+        return resp.json()
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # ── Progress bar polling ───────────────────────────────────────────────────────
 
 SCAN_STAGES = [
@@ -97,16 +131,12 @@ SCAN_STAGES = [
 ]
 
 
-def poll_until_complete(job_id: str):
+def poll_until_complete(job_id: str, scan_type: str = "file"):
     progress_bar = st.progress(0.0)
     status_text = st.empty()
 
     cancel_col, _ = st.columns([1, 4])
-    cancel_clicked = cancel_col.button(
-        "🛑 Cancel Scan", key=f"cancel_{job_id}"
-    )
-
-    if cancel_clicked:
+    if cancel_col.button("🛑 Cancel Scan", key=f"cancel_{job_id}"):
         try:
             resp = requests.delete(
                 f"{BACKEND_URL}/api/scan/cancel/{job_id}",
@@ -116,6 +146,7 @@ def poll_until_complete(job_id: str):
             if resp.status_code == 200:
                 progress_bar.empty()
                 status_text.warning("Scan cancelled.")
+                _clear_active_job(scan_type)
             else:
                 status_text.error(f"Could not cancel: {resp.text}")
         except Exception as e:
@@ -125,54 +156,38 @@ def poll_until_complete(job_id: str):
     stage_index = 0
 
     while True:
-        try:
-            resp = requests.get(
-                f"{BACKEND_URL}/api/scan/status/{job_id}",
-                headers=auth_headers(),
-                timeout=15
-            )
-            if resp.status_code == 401:
-                st.error("Session expired. Please log in again.")
-                st.session_state.clear()
-                st.rerun()
+        data = _check_job_status(job_id)
+        backend_status = data.get("status", "")
 
-            data = resp.json()
-            backend_status = data.get("status", "")
-
-            if backend_status == "completed":
-                progress_bar.progress(1.0)
-                status_text.success("✅ Scan complete!")
-                time.sleep(0.5)
-                progress_bar.empty()
-                status_text.empty()
-                return data.get("result", {})
-
-            elif backend_status == "failed":
-                progress_bar.empty()
-                status_text.empty()
-                result = data.get("result", {})
-                st.error(
-                    f"Scan failed: {result.get('error', 'Unknown error')}"
-                )
-                return None
-
-            elif backend_status in ("pending", "running"):
-                if stage_index < len(SCAN_STAGES) - 2:
-                    stage_index += 1
-                pct, label = SCAN_STAGES[stage_index]
-                progress_bar.progress(pct)
-                status_text.warning(
-                    f"{label}  —  Job: `{job_id[:8]}`"
-                )
-                time.sleep(5)
-            else:
-                time.sleep(5)
-
-        except Exception as e:
+        if backend_status == "completed":
+            progress_bar.progress(1.0)
+            status_text.success("✅ Scan complete!")
+            time.sleep(0.5)
             progress_bar.empty()
             status_text.empty()
-            st.error(f"Polling error: {e}")
+            _clear_active_job(scan_type)
+            return data.get("result", {})
+
+        elif backend_status == "failed":
+            progress_bar.empty()
+            status_text.empty()
+            _clear_active_job(scan_type)
+            result = data.get("result", {})
+            st.error(
+                f"Scan failed: {result.get('error', data.get('error', 'Unknown error'))}"
+            )
             return None
+
+        elif backend_status in ("pending", "running"):
+            if stage_index < len(SCAN_STAGES) - 2:
+                stage_index += 1
+            pct, label = SCAN_STAGES[stage_index]
+            progress_bar.progress(pct)
+            status_text.warning(f"{label}  —  Job: `{job_id[:8]}`")
+            time.sleep(5)
+
+        else:
+            time.sleep(5)
 
 
 def show_scan_result(result: dict, job_id: str):
@@ -222,7 +237,43 @@ def _show_download_button(job_id: str):
         st.warning(f"Could not fetch report: {e}")
 
 
-# ── Shared page functions (imported by admin_dashboard too) ────────────────────
+# ── Active job banner ──────────────────────────────────────────────────────────
+
+def show_active_jobs_banner():
+    """
+    Shows a banner on any page if a scan is still running in the background.
+    """
+    active_jobs = _get_active_jobs()
+    if not active_jobs:
+        return
+
+    for scan_type, job_id in list(active_jobs.items()):
+        data = _check_job_status(job_id)
+        status = data.get("status", "")
+
+        if status == "completed":
+            st.success(
+                f"✅ **{scan_type.upper()} scan complete!** "
+                f"Job `{job_id[:8]}` — go to My Reports to download."
+            )
+            _clear_active_job(scan_type)
+
+        elif status == "failed":
+            st.error(
+                f"❌ **{scan_type.upper()} scan failed.** "
+                f"Job `{job_id[:8]}`"
+            )
+            _clear_active_job(scan_type)
+
+        elif status in ("pending", "running"):
+            st.info(
+                f"⏳ **{scan_type.upper()} scan running in background** "
+                f"— Job `{job_id[:8]}`. "
+                f"Navigate to the scan page to see progress."
+            )
+
+
+# ── Shared page functions ──────────────────────────────────────────────────────
 
 def page_file_scan():
     st.header("📁 Static File Analysis")
@@ -230,6 +281,27 @@ def page_file_scan():
         "File type is detected by binary inspection — "
         "renaming a file does not fool the scanner."
     )
+
+    active_jobs = _get_active_jobs()
+    existing_job = active_jobs.get("file")
+
+    if existing_job:
+        data = _check_job_status(existing_job)
+        status = data.get("status", "")
+        if status == "completed":
+            st.success("✅ Previous scan complete!")
+            result = data.get("result", {})
+            show_scan_result(result, existing_job)
+            _clear_active_job("file")
+            return
+        elif status in ("pending", "running"):
+            st.info(f"Resuming scan — Job ID: `{existing_job}`")
+            result = poll_until_complete(existing_job, "file")
+            show_scan_result(result, existing_job)
+            return
+        else:
+            _clear_active_job("file")
+
     uploaded_file = st.file_uploader(
         "Choose a file to scan",
         type=[
@@ -255,14 +327,12 @@ def page_file_scan():
                     st.session_state.clear()
                     st.rerun()
                 elif resp.status_code == 429:
-                    st.error(
-                        "Too many scans queued. "
-                        "Please wait a moment before scanning again."
-                    )
+                    st.error("Too many scans. Please wait a moment.")
                 elif resp.status_code == 200:
                     job_id = resp.json().get("job_id")
+                    _set_active_job("file", job_id)
                     st.info(f"Scan queued — Job ID: `{job_id}`")
-                    result = poll_until_complete(job_id)
+                    result = poll_until_complete(job_id, "file")
                     show_scan_result(result, job_id)
                 else:
                     st.error(f"Upload failed: {resp.text}")
@@ -278,6 +348,27 @@ def page_url_scan():
         "Runs nikto, nmap, whatweb and wafw00f. "
         "Private/internal IPs are blocked."
     )
+
+    active_jobs = _get_active_jobs()
+    existing_job = active_jobs.get("url")
+
+    if existing_job:
+        data = _check_job_status(existing_job)
+        status = data.get("status", "")
+        if status == "completed":
+            st.success("✅ Previous URL scan complete!")
+            result = data.get("result", {})
+            show_scan_result(result, existing_job)
+            _clear_active_job("url")
+            return
+        elif status in ("pending", "running"):
+            st.info(f"Resuming URL scan — Job ID: `{existing_job}`")
+            result = poll_until_complete(existing_job, "url")
+            show_scan_result(result, existing_job)
+            return
+        else:
+            _clear_active_job("url")
+
     url_input = st.text_input(
         "Target URL", placeholder="https://example.com"
     )
@@ -306,8 +397,9 @@ def page_url_scan():
                     st.error(msg)
                 elif resp.status_code == 200:
                     job_id = resp.json().get("job_id")
+                    _set_active_job("url", job_id)
                     st.info(f"URL scan queued — Job ID: `{job_id}`")
-                    result = poll_until_complete(job_id)
+                    result = poll_until_complete(job_id, "url")
                     show_scan_result(result, job_id)
                 else:
                     st.error(f"Request failed: {resp.text}")
@@ -323,6 +415,27 @@ def page_repo_scan():
         "Scans public repos with semgrep, gitleaks and trufflehog. "
         "Only public repositories are supported."
     )
+
+    active_jobs = _get_active_jobs()
+    existing_job = active_jobs.get("repository")
+
+    if existing_job:
+        data = _check_job_status(existing_job)
+        status = data.get("status", "")
+        if status == "completed":
+            st.success("✅ Previous repository scan complete!")
+            result = data.get("result", {})
+            show_scan_result(result, existing_job)
+            _clear_active_job("repository")
+            return
+        elif status in ("pending", "running"):
+            st.info(f"Resuming repository scan — Job ID: `{existing_job}`")
+            result = poll_until_complete(existing_job, "repository")
+            show_scan_result(result, existing_job)
+            return
+        else:
+            _clear_active_job("repository")
+
     repo_input = st.text_input(
         "Repository URL",
         placeholder="https://github.com/owner/repo"
@@ -351,9 +464,7 @@ def page_repo_scan():
                     st.session_state.clear()
                     st.rerun()
                 elif resp.status_code == 429:
-                    st.error(
-                        "Too many repository scans. Please wait a moment."
-                    )
+                    st.error("Too many repository scans. Please wait a moment.")
                 elif resp.status_code == 422:
                     detail = resp.json().get("detail", [])
                     msg = (
@@ -364,8 +475,9 @@ def page_repo_scan():
                     st.error(msg)
                 elif resp.status_code == 200:
                     job_id = resp.json().get("job_id")
+                    _set_active_job("repository", job_id)
                     st.info(f"Repo scan queued — Job ID: `{job_id}`")
-                    result = poll_until_complete(job_id)
+                    result = poll_until_complete(job_id, "repository")
                     show_scan_result(result, job_id)
                 else:
                     st.error(f"Request failed: {resp.text}")
@@ -399,7 +511,7 @@ def page_my_reports():
 
             st.caption(f"Total reports: **{len(reports)}**")
 
-            # ── Scan history chart ─────────────────────────────────────────
+            # History chart
             if len(reports) > 1:
                 st.markdown("### 📈 Vulnerability History")
                 df_chart = pd.DataFrame([
@@ -416,29 +528,19 @@ def page_my_reports():
                     df_chart.set_index("Scan")["Vulnerabilities"]
                 )
 
-            # ── History table ──────────────────────────────────────────────
+            # History table
             st.markdown("### 📋 Scan History")
-
             sev_icons = {
-                "critical": "🔴",
-                "high":     "🟠",
-                "medium":   "🟡",
-                "low":      "🟢",
-                "info":     "🔵",
-                "none":     "⚪",
+                "critical": "🔴", "high": "🟠", "medium": "🟡",
+                "low": "🟢", "info": "🔵", "none": "⚪",
             }
-
             df_table = pd.DataFrame([
                 {
-                    "Date": (
-                        r.get("created_at", "")[:19].replace("T", " ")
-                    ),
+                    "Date": r.get("created_at", "")[:19].replace("T", " "),
                     "Type": r.get("scan_type", "file").upper(),
                     "Target": r.get("target", "N/A")[-50:],
                     "Vulns": r.get("vulnerability_count", 0),
-                    "Threat %": (
-                        f"{r.get('threat_score', 0.0):.0f}%"
-                    ),
+                    "Threat %": f"{r.get('threat_score', 0.0):.0f}%",
                     "Highest": (
                         sev_icons.get(
                             r.get("highest_severity", "none"), "⚪"
@@ -449,22 +551,17 @@ def page_my_reports():
                 for r in reports
             ])
             st.dataframe(
-                df_table,
-                use_container_width=True,
-                hide_index=True
+                df_table, use_container_width=True, hide_index=True
             )
 
-            # ── Per-report download ────────────────────────────────────────
+            # Download section
             st.markdown("### 📥 Download Reports")
             for r in reports:
                 job_id = r.get("job_id", "")
                 scan_type = r.get("scan_type", "file").upper()
                 target = r.get("target", "N/A")
-                created = (
-                    r.get("created_at", "")[:19].replace("T", " ")
-                )
+                created = r.get("created_at", "")[:19].replace("T", " ")
                 vuln_count = r.get("vulnerability_count", 0)
-
                 with st.expander(
                     f"[{scan_type}] {target[:50]} — "
                     f"{vuln_count} vulns — {created}"
@@ -472,8 +569,7 @@ def page_my_reports():
                     st.caption(f"Job ID: `{job_id}`")
                     try:
                         dl_resp = requests.get(
-                            f"{BACKEND_URL}/api/reports"
-                            f"/{job_id}/download",
+                            f"{BACKEND_URL}/api/reports/{job_id}/download",
                             headers=auth_headers(),
                             timeout=30
                         )
@@ -505,6 +601,8 @@ def show():
         f"Welcome, **{st.session_state.username}** — "
         "Autonomous Intelligence & Guard Inspection System"
     )
+
+    show_active_jobs_banner()
 
     page = st.sidebar.radio(
         "Navigation",

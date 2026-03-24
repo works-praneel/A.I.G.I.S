@@ -1,6 +1,23 @@
+import os
 from backend.reporting.pdf_exporter import export_pdf
 from backend.database.database import SessionLocal
 from backend.database.models import Report
+
+
+def _clean_target(target: str, scan_type: str) -> str:
+    """
+    Clean target before storing in DB.
+    For file/zip scans, strips internal path and UUID prefix.
+    For URL/repo scans, returns as-is.
+    """
+    if scan_type in ("file", "zip"):
+        if "/app/uploads/" in target:
+            target = target.split("/app/uploads/")[-1]
+        basename = os.path.basename(target)
+        if len(basename) > 37 and basename[36] == "_":
+            return basename[37:]
+        return basename
+    return target
 
 
 def generate_report(
@@ -10,6 +27,8 @@ def generate_report(
     target="",
     user_id=None
 ):
+    clean_target = _clean_target(target, scan_type)
+
     path = export_pdf(
         job_id=job_id,
         vulnerabilities=vulnerabilities,
@@ -23,10 +42,7 @@ def generate_report(
     severity_order = ["critical", "high", "medium", "low", "info", "none"]
     highest = "none"
     for sev in severity_order:
-        if any(
-            v.get("severity", "").lower() == sev
-            for v in vulnerabilities
-        ):
+        if any(v.get("severity", "").lower() == sev for v in vulnerabilities):
             highest = sev
             break
 
@@ -35,7 +51,7 @@ def generate_report(
         job_id=job_id,
         path=path,
         scan_type=scan_type,
-        target=target,
+        target=clean_target,
         user_id=user_id,
         vulnerability_count=vuln_count,
         threat_score=threat_score,

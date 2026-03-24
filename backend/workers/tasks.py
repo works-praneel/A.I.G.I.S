@@ -15,14 +15,42 @@ from backend.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _write_scan_job(input_name, input_type, status, user_id=None):
+    """Write a ScanJob record so the admin All Scans page populates."""
+    try:
+        from backend.database.database import SessionLocal
+        from backend.database.models import ScanJob
+        db = SessionLocal()
+        job = ScanJob(
+            input_name=input_name,
+            input_type=input_type,
+            status=status,
+            user_id=user_id if hasattr(ScanJob, 'user_id') else None,
+        )
+        db.add(job)
+        db.commit()
+        db.close()
+    except Exception as e:
+        logger.warning(f"[AIGIS] Could not write ScanJob: {e}")
+
+
+# ── File scan ──────────────────────────────────────────────────────────────────
+
 @celery.task(name="backend.workers.tasks.run_scan_task", bind=True)
 def run_scan_task(self, file_path: str, user_id: int = None):
 
     logger.info(f"[AIGIS] Starting file scan for: {file_path}")
 
+    filename = os.path.basename(file_path)
+    if len(filename) > 37 and filename[36] == "_":
+        filename = filename[37:]
+
     if not os.path.exists(file_path):
         logger.error(f"[AIGIS] File not found: {file_path}")
+        _write_scan_job(filename, "file", "failed", user_id)
         return {"status": "error", "reason": "file not found"}
+
+    _write_scan_job(filename, "file", "running", user_id)
 
     try:
         logger.info("[AIGIS] Dispatching tools")
@@ -48,6 +76,7 @@ def run_scan_task(self, file_path: str, user_id: int = None):
             user_id=user_id
         )
 
+        _write_scan_job(filename, "file", "completed", user_id)
         logger.info("[AIGIS] Scan completed successfully")
         return {
             "status": "completed",
@@ -57,9 +86,12 @@ def run_scan_task(self, file_path: str, user_id: int = None):
         }
 
     except Exception as e:
+        _write_scan_job(filename, "file", "failed", user_id)
         logger.exception("[AIGIS] File scan failed")
         return {"status": "failed", "error": str(e), "file": file_path}
 
+
+# ── URL scan ───────────────────────────────────────────────────────────────────
 
 @celery.task(name="backend.workers.tasks.run_url_scan_task", bind=True)
 def run_url_scan_task(self, url: str, user_id: int = None):
@@ -68,6 +100,8 @@ def run_url_scan_task(self, url: str, user_id: int = None):
 
     if not re.match(r"^https?://", url):
         return {"status": "error", "reason": "Invalid URL", "url": url}
+
+    _write_scan_job(url, "url", "running", user_id)
 
     try:
         logger.info("[AIGIS] Dispatching web tools")
@@ -93,6 +127,7 @@ def run_url_scan_task(self, url: str, user_id: int = None):
             user_id=user_id
         )
 
+        _write_scan_job(url, "url", "completed", user_id)
         logger.info("[AIGIS] URL scan completed successfully")
         return {
             "status": "completed",
@@ -102,9 +137,12 @@ def run_url_scan_task(self, url: str, user_id: int = None):
         }
 
     except Exception as e:
+        _write_scan_job(url, "url", "failed", user_id)
         logger.exception("[AIGIS] URL scan failed")
         return {"status": "failed", "error": str(e), "url": url}
 
+
+# ── Repository scan ────────────────────────────────────────────────────────────
 
 @celery.task(name="backend.workers.tasks.run_repo_scan_task", bind=True)
 def run_repo_scan_task(
@@ -115,9 +153,7 @@ def run_repo_scan_task(
 
     logger.info(f"[AIGIS] Starting repository scan for: {repo_url}")
 
-    if not re.match(
-        r"^https?://(github|gitlab|bitbucket)\.com/", repo_url
-    ):
+    if not re.match(r"^https?://(github|gitlab|bitbucket)\.com/", repo_url):
         return {
             "status": "error",
             "reason": "Invalid repository URL.",
@@ -125,6 +161,7 @@ def run_repo_scan_task(
         }
 
     clone_dir = None
+    _write_scan_job(repo_url, "repository", "running", user_id)
 
     try:
         clone_dir = tempfile.mkdtemp(prefix="aigis_repo_")
@@ -146,6 +183,7 @@ def run_repo_scan_task(
             )
 
         if clone_result.returncode != 0:
+            _write_scan_job(repo_url, "repository", "failed", user_id)
             return {
                 "status": "error",
                 "reason": f"Git clone failed: {clone_result.stderr.strip()}",
@@ -154,23 +192,15 @@ def run_repo_scan_task(
 
         logger.info("[AIGIS] Repository cloned successfully")
 
-        logger.info("[AIGIS] Dispatching tools on repository")
         raw_results = dispatch(clone_dir)
         logger.info(f"[AIGIS] Tools executed: {len(raw_results)}")
 
-        logger.info("[AIGIS] Parsing vulnerabilities")
         vulnerabilities = parse_vulnerabilities(raw_results)
-        logger.info(
-            f"[AIGIS] Vulnerabilities detected: {len(vulnerabilities)}"
-        )
+        logger.info(f"[AIGIS] Vulnerabilities detected: {len(vulnerabilities)}")
 
-        logger.info("[AIGIS] Scoring vulnerabilities")
         scored = score_vulnerabilities(vulnerabilities)
-
-        logger.info("[AIGIS] Generating AI remediation")
         remediated = generate_remediation(scored)
 
-        logger.info("[AIGIS] Generating report")
         report_path = generate_report(
             job_id=self.request.id,
             vulnerabilities=remediated,
@@ -179,6 +209,7 @@ def run_repo_scan_task(
             user_id=user_id
         )
 
+        _write_scan_job(repo_url, "repository", "completed", user_id)
         logger.info("[AIGIS] Repository scan completed successfully")
         return {
             "status": "completed",
@@ -188,6 +219,7 @@ def run_repo_scan_task(
         }
 
     except subprocess.TimeoutExpired:
+        _write_scan_job(repo_url, "repository", "failed", user_id)
         return {
             "status": "error",
             "reason": "Git clone timed out after 120s.",
@@ -195,6 +227,7 @@ def run_repo_scan_task(
         }
 
     except Exception as e:
+        _write_scan_job(repo_url, "repository", "failed", user_id)
         logger.exception("[AIGIS] Repository scan failed")
         return {"status": "failed", "error": str(e), "repo_url": repo_url}
 

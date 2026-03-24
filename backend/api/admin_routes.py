@@ -54,9 +54,7 @@ def list_all_reports(
     db: Session = Depends(get_db),
     admin=Depends(require_role("admin"))
 ):
-    reports = db.query(Report).order_by(
-        Report.created_at.desc()
-    ).all()
+    reports = db.query(Report).order_by(Report.created_at.desc()).all()
     return [
         {
             "id": r.id,
@@ -67,6 +65,7 @@ def list_all_reports(
             "threat_score": r.threat_score or 0.0,
             "highest_severity": r.highest_severity or "none",
             "user_id": r.user_id,
+            "username": r.user.username if r.user else "unknown",
             "path": r.path,
             "created_at": r.created_at
         }
@@ -82,15 +81,9 @@ def admin_download_report(
 ):
     report = db.query(Report).filter(Report.job_id == job_id).first()
     if not report:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Report not found"
-        )
+        raise HTTPException(status_code=404, detail="Report not found")
     if not os.path.exists(report.path):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Report file not found on disk"
-        )
+        raise HTTPException(status_code=404, detail="Report file not found on disk")
     return FileResponse(
         path=report.path,
         filename=f"{job_id}.pdf",
@@ -103,14 +96,36 @@ def list_all_scans(
     db: Session = Depends(get_db),
     admin=Depends(require_role("admin"))
 ):
+    """Returns all scan jobs grouped by user."""
+    users = db.query(User).all()
     scans = db.query(ScanJob).order_by(ScanJob.created_at.desc()).all()
-    return [
-        {
+
+    user_lookup = {u.id: u.username for u in users}
+    grouped = {}
+    unassigned = []
+
+    for s in scans:
+        uid = getattr(s, 'user_id', None)
+        entry = {
             "id": s.id,
             "input_name": s.input_name,
             "input_type": s.input_type,
             "status": s.status,
-            "created_at": s.created_at
+            "created_at": s.created_at,
         }
-        for s in scans
+        if uid and uid in user_lookup:
+            username = user_lookup[uid]
+            if username not in grouped:
+                grouped[username] = []
+            grouped[username].append(entry)
+        else:
+            unassigned.append(entry)
+
+    result = [
+        {"username": username, "scans": user_scans}
+        for username, user_scans in grouped.items()
     ]
+    if unassigned:
+        result.append({"username": "unassigned", "scans": unassigned})
+
+    return result

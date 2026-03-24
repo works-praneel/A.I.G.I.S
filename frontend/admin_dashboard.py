@@ -29,29 +29,36 @@ def show():
         ]
     )
 
-    # ── Scan pages — shared directly from user_dashboard ──────────────────────
+    # ── Scan pages shared from user_dashboard ─────────────────────────────────
     if page == "📁 File Scan":
-        from user_dashboard import page_file_scan
+        from user_dashboard import page_file_scan, show_active_jobs_banner
+        show_active_jobs_banner()
         page_file_scan()
         return
 
     if page == "🌐 URL Scan":
-        from user_dashboard import page_url_scan
+        from user_dashboard import page_url_scan, show_active_jobs_banner
+        show_active_jobs_banner()
         page_url_scan()
         return
 
     if page == "📦 Repository Scan":
-        from user_dashboard import page_repo_scan
+        from user_dashboard import page_repo_scan, show_active_jobs_banner
+        show_active_jobs_banner()
         page_repo_scan()
         return
 
     if page == "📜 My Reports":
-        from user_dashboard import page_my_reports
+        from user_dashboard import page_my_reports, show_active_jobs_banner
+        show_active_jobs_banner()
         page_my_reports()
         return
 
     # ── Overview ──────────────────────────────────────────────────────────────
     if page == "🏠 Overview":
+        from user_dashboard import show_active_jobs_banner
+        show_active_jobs_banner()
+
         st.subheader("System Overview")
         col1, col2, col3 = st.columns(3)
 
@@ -84,16 +91,14 @@ def show():
                 f"{BACKEND_URL}/api/admin/scans",
                 headers=auth_headers(), timeout=10
             )
-            col3.metric(
-                "🔍 Total Scans",
-                len(r.json()) if r.status_code == 200 else "—"
-            )
+            data = r.json() if r.status_code == 200 else []
+            total_scans = sum(len(g.get("scans", [])) for g in data)
+            col3.metric("🔍 Total Scans", total_scans)
         except Exception:
             col3.metric("🔍 Total Scans", "—")
 
         st.markdown("---")
 
-        # Recent activity feed — last 5 reports at a glance
         st.subheader("🕐 Recent Activity")
         try:
             r = requests.get(
@@ -111,10 +116,11 @@ def show():
                         )
                         vuln_count = item.get("vulnerability_count", 0)
                         highest = item.get("highest_severity", "none")
+                        username = item.get("username", "unknown")
                         st.markdown(
-                            f"- `[{scan_type}]` {target[:50]} — "
-                            f"**{vuln_count} vulns** — "
-                            f"highest: `{highest}` — {created}"
+                            f"- `[{scan_type}]` **{username}** — "
+                            f"{target[:40]} — **{vuln_count} vulns** — "
+                            f"`{highest}` — {created}"
                         )
                 else:
                     st.info("No activity yet.")
@@ -126,7 +132,7 @@ def show():
         **Admin capabilities:**
         - Run file, URL, and repository scans
         - View and manage all registered users
-        - View all scan jobs across all users
+        - View all scan jobs across all users grouped by user
         - Download any report from any user
         - Delete user accounts
         """)
@@ -151,8 +157,6 @@ def show():
                     st.info("No users registered.")
                 else:
                     st.caption(f"Total users: **{len(users)}**")
-
-                    # Search filter
                     search = st.text_input(
                         "🔍 Search by username",
                         placeholder="Type to filter..."
@@ -165,7 +169,6 @@ def show():
                         ]
                         if search else users
                     )
-
                     for u in filtered:
                         uid = u.get("id")
                         uname = u.get("username", "unknown")
@@ -203,9 +206,13 @@ def show():
         except Exception as e:
             st.error(f"Error: {e}")
 
-    # ── All Scans ─────────────────────────────────────────────────────────────
+    # ── All Scans — grouped by user ────────────────────────────────────────────
     elif page == "📊 All Scans":
         st.subheader("All Scan Jobs")
+        st.caption(
+            "Scans are grouped by user. "
+            "Expand each user to see their scans."
+        )
         try:
             resp = requests.get(
                 f"{BACKEND_URL}/api/admin/scans",
@@ -216,36 +223,68 @@ def show():
                 st.session_state.clear()
                 st.rerun()
             elif resp.status_code == 200:
-                scans = resp.json()
-                if not scans:
-                    st.info("No scan jobs found.")
+                grouped = resp.json()
+
+                if not grouped or all(
+                    len(g.get("scans", [])) == 0 for g in grouped
+                ):
+                    st.info(
+                        "No scan jobs found. "
+                        "Scans will appear here after users run them."
+                    )
                 else:
-                    st.caption(f"Total scan jobs: **{len(scans)}**")
-
-                    # Status filter
-                    all_statuses = list(
-                        set(s.get("status", "unknown") for s in scans)
+                    total = sum(
+                        len(g.get("scans", [])) for g in grouped
                     )
-                    selected_status = st.selectbox(
-                        "Filter by status",
-                        ["All"] + all_statuses
-                    )
-                    filtered = (
-                        scans if selected_status == "All"
-                        else [
-                            s for s in scans
-                            if s.get("status") == selected_status
-                        ]
+                    st.caption(
+                        f"Total scan jobs across all users: **{total}**"
                     )
 
-                    df = pd.DataFrame(filtered)
-                    if "created_at" in df.columns:
-                        df["created_at"] = pd.to_datetime(
-                            df["created_at"]
-                        ).dt.strftime("%Y-%m-%d %H:%M")
-                    st.dataframe(
-                        df, use_container_width=True, hide_index=True
-                    )
+                    for group in grouped:
+                        username = group.get("username", "unknown")
+                        scans = group.get("scans", [])
+                        if not scans:
+                            continue
+
+                        with st.expander(
+                            f"👤 **{username}** — {len(scans)} scan(s)",
+                            expanded=True
+                        ):
+                            all_statuses = list(
+                                set(s.get("status", "unknown") for s in scans)
+                            )
+                            selected = st.selectbox(
+                                "Filter by status",
+                                ["All"] + all_statuses,
+                                key=f"filter_{username}"
+                            )
+                            filtered = (
+                                scans if selected == "All"
+                                else [
+                                    s for s in scans
+                                    if s.get("status") == selected
+                                ]
+                            )
+
+                            df = pd.DataFrame(filtered)
+                            if "created_at" in df.columns:
+                                df["created_at"] = pd.to_datetime(
+                                    df["created_at"]
+                                ).dt.strftime("%Y-%m-%d %H:%M")
+
+                            display_cols = [
+                                c for c in
+                                [
+                                    "input_name", "input_type",
+                                    "status", "created_at"
+                                ]
+                                if c in df.columns
+                            ]
+                            st.dataframe(
+                                df[display_cols],
+                                use_container_width=True,
+                                hide_index=True
+                            )
             else:
                 st.error(f"Failed to load scans: {resp.text}")
         except requests.exceptions.ConnectionError:
@@ -272,7 +311,6 @@ def show():
                 else:
                     st.caption(f"Total reports: **{len(reports)}**")
 
-                    # Filter by scan type
                     scan_types = list(
                         set(r.get("scan_type", "file") for r in reports)
                     )
@@ -298,15 +336,19 @@ def show():
                         vuln_count = r.get("vulnerability_count", 0)
                         threat = r.get("threat_score", 0.0)
                         highest = r.get("highest_severity", "none")
+                        username = r.get("username", "unknown")
 
                         with st.expander(
-                            f"[{scan_type}] {target[:50]} — "
-                            f"{vuln_count} vulns — {created}"
+                            f"[{scan_type}] {target[:45]} — "
+                            f"{vuln_count} vulns — {username} — {created}"
                         ):
-                            col1, col2, col3 = st.columns(3)
+                            col1, col2, col3, col4 = st.columns(4)
                             col1.metric("Vulnerabilities", vuln_count)
                             col2.metric("Threat Score", f"{threat:.0f}%")
-                            col3.metric("Highest Severity", highest.capitalize())
+                            col3.metric(
+                                "Highest", highest.capitalize()
+                            )
+                            col4.metric("User", username)
 
                             st.caption(f"Job ID: `{job_id}`")
                             try:

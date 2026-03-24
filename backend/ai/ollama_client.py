@@ -6,7 +6,7 @@ logger = get_logger(__name__)
 
 OLLAMA_GENERATE_URL = f"{settings.OLLAMA_HOST}/api/generate"
 OLLAMA_TAGS_URL     = f"{settings.OLLAMA_HOST}/api/tags"
-OLLAMA_TIMEOUT      = 90
+OLLAMA_TIMEOUT      = 180
 
 _MODEL_NAME = None
 

@@ -38,7 +38,8 @@ class ScanJob(Base):
     tests_performed = Column(Text)
     status = Column(String)
     created_at = Column(DateTime, default=func.now())
-
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
 
 class ScanResult(Base):
     __tablename__ = "scan_results"
@@ -55,15 +56,15 @@ class Report(Base):
     id = Column(Integer, primary_key=True)
     job_id = Column(String)
     path = Column(String)
+    created_at = Column(DateTime, default=func.now())
+    user = relationship("User")
     scan_type = Column(String, default="file")
     target = Column(String, default="")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     vulnerability_count = Column(Integer, default=0)
     threat_score = Column(Float, default=0.0)
     highest_severity = Column(String, default="none")
-    created_at = Column(DateTime, default=func.now())
-    user = relationship("User")
-
+    
 
 class WorkerNode(Base):
     __tablename__ = "worker_nodes"

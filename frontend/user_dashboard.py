@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import time
 import pandas as pd
+import json
 
 BACKEND_URL = "http://backend:8000"
 
@@ -9,6 +10,53 @@ BACKEND_URL = "http://backend:8000"
 def auth_headers():
     return {"Authorization": f"Bearer {st.session_state.token}"}
 
+# ── ENGINE MAPPING & BADGE UI ─────────────────────────────────────────────────
+
+TOOL_MAPPING = {
+    "Python": ["Bandit", "Semgrep", "Pylint", "Safety"],
+    "JavaScript": ["ESLint", "Retire.js"],
+    "Java": ["Checkstyle", "SpotBugs", "PMD"],
+    "C/C++": ["Cppcheck", "Flawfinder", "RATS"],
+    "Ruby": ["Brakeman", "Bundler-Audit"],
+    "Go": ["Gosec", "Staticcheck"],
+    "PHP": ["PHPCS", "Semgrep"],
+    "Binary": ["Checksec", "Binwalk", "Strings", "YARA", "ClamAV"],
+    "Repository": ["Semgrep", "Gitleaks", "Trufflehog"],
+    "URL": ["Nikto", "Nmap", "WhatWeb", "Wafw00f"],
+    "ZIP Archive": ["Auto-Extraction", "Multi-Language SAST", "ClamAV Malware Engine"]
+}
+
+def display_active_engines(scan_type: str, language: str = None):
+    """
+    Renders a sleek UI block showing the active tools for the selected scan.
+    """
+    if scan_type == "File" and language:
+        tools = TOOL_MAPPING.get(language, ["Semgrep (Fallback)"])
+    else:
+        tools = TOOL_MAPPING.get(scan_type, [])
+
+    if tools:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("**⚙️ Engines Armed for this Scan:**")
+        
+        html_badges = ""
+        for tool in tools:
+            html_badges += f"""
+            <span style="
+                display: inline-block;
+                background-color: #1E293B;
+                color: #38BDF8;
+                padding: 4px 12px;
+                border-radius: 16px;
+                font-size: 13px;
+                font-weight: 600;
+                margin-right: 8px;
+                margin-bottom: 8px;
+                border: 1px solid #0369A1;
+            ">{tool}</span>
+            """
+        st.markdown(html_badges, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
 # ── Visual components ──────────────────────────────────────────────────────────
 
@@ -89,7 +137,6 @@ def show_severity_table(vulnerabilities: list):
 def _save_jobs_to_cookie():
     """Forces the active jobs list to save to the browser cookie immediately."""
     if "cookies" in st.session_state:
-        import json
         st.session_state.cookies["active_jobs"] = json.dumps(st.session_state.active_jobs)
         st.session_state.cookies.save()
 
@@ -317,6 +364,13 @@ def page_file_scan():
         else:
             _clear_active_job("file")
 
+    # Add interactive preview dropdown for tools!
+    file_type = st.selectbox(
+        "Select Expected Target Type (To Preview Engines)", 
+        ["Python", "JavaScript", "Java", "C/C++", "Ruby", "Go", "PHP", "Binary"]
+    )
+    display_active_engines("File", language=file_type)
+
     uploaded_file = st.file_uploader(
         "Choose a file to scan",
         type=[
@@ -382,6 +436,8 @@ def page_zip_scan():
             return
         else:
             _clear_active_job("zip")
+
+    display_active_engines("ZIP Archive")
 
     uploaded_file = st.file_uploader(
         "Choose a .zip file to scan",
@@ -450,6 +506,9 @@ def page_url_scan():
     url_input = st.text_input(
         "Target URL", placeholder="https://example.com"
     )
+    
+    display_active_engines("URL")
+
     if url_input:
         if st.button("🚀 Start URL Scan", use_container_width=True):
             try:
@@ -523,6 +582,8 @@ def page_repo_scan():
         value="main", 
         placeholder="main"
     )
+    
+    display_active_engines("Repository")
     
     if repo_input:
         if st.button("🚀 Start Repository Scan", use_container_width=True):

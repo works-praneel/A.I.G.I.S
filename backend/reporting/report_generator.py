@@ -20,6 +20,29 @@ def _clean_target(target: str, scan_type: str) -> str:
     return target
 
 
+def _sanitize_vulnerabilities(vulnerabilities: list, clean_target: str) -> list:
+    """
+    Cleans up missing locations and raw unparsed tool outputs 
+    before they are written to the PDF.
+    """
+    for v in vulnerabilities:
+        # 1. Fix missing or N/A locations by using the cleaned filename
+        loc = str(v.get("location", "")).strip()
+        if not loc or loc == "N/A":
+            v["location"] = clean_target
+
+        # 2. Fix ugly raw dictionary descriptions (like cppcheck XML dumps)
+        desc = str(v.get("description", "")).strip()
+        if desc.startswith("{") and "'tool':" in desc and "'result':" in desc:
+            tool_name = str(v.get("tool", "The scanner")).upper()
+            v["description"] = (
+                f"{tool_name} flagged a potential issue, but returned raw diagnostic data "
+                f"instead of a standard description. Please review the file manually."
+            )
+            
+    return vulnerabilities
+
+
 def generate_report(
     job_id,
     vulnerabilities,
@@ -28,6 +51,9 @@ def generate_report(
     user_id=None
 ):
     clean_target = _clean_target(target, scan_type)
+    
+    # Clean up the vulnerabilities BEFORE they hit the PDF generator
+    vulnerabilities = _sanitize_vulnerabilities(vulnerabilities, clean_target)
 
     path = export_pdf(
         job_id=job_id,

@@ -156,3 +156,9 @@ As shown in the dashboard table, the mapping directly follows the official CVSS 
 When the underlying tools (like Bandit, Semgrep, or Nikto) find a flaw, they assign it a base CVSS score. The pipeline catches that number, drops it into the correct severity bucket for human readability, and uses it to calculate your overall Threat Level percentage.
 
 ---
+
+## 📜 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+A.I.G.I.S integrates several open-source security tools (Semgrep, Bandit, ClamAV, etc.). All underlying tools retain their original respective licenses.

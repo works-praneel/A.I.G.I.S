@@ -121,26 +121,36 @@ Instead of just guessing how bad a bug is, security researchers and automated to
 
 **1. Exploitability (How easy is it to hack ?)**
 
-**Attack Vector:** Can this be exploited remotely over the internet, or does the attacker need physical access to the server?
-**Attack Complexity:** Is it a simple click-and-hack, or does it require perfect timing and advanced custom scripts?
-**Privileges Required:** Can a random, unauthenticated user trigger the bug, or does the attacker already need Admin rights?
-**User Interaction:** Does the attacker need to trick a legitimate user into clicking a malicious link, or can the script run automatically?
+* *Attack Vector:* Can this be exploited remotely over the internet, or does the attacker need physical access to the server?
+
+* *Attack Complexity:* Is it a simple click-and-hack, or does it require perfect timing and advanced custom scripts?
+
+* *Privileges Required:* Can a random, unauthenticated user trigger the bug, or does the attacker already need Admin rights?
+
+* *User Interaction:* Does the attacker need to trick a legitimate user into clicking a malicious link, or can the script run automatically?
 
 **2. Impact (What happens if they succeed?)**
 
-*Confidentiality:* Did they steal sensitive database records, or just see the server's version number?
-*Integrity:* Can they alter data (like changing passwords or financial records)?
-*Availability:* Can they crash the system or take it offline?
+* *Confidentiality:* Did they steal sensitive database records, or just see the server's version number?
+
+* *Integrity:* Can they alter data (like changing passwords or financial records)?
+
+* *Availability:* Can they crash the system or take it offline?
 
 **How It Links to Severity**
+
 While a numerical score is precise, numbers like "7.4" or "4.3" can be difficult for development teams to quickly prioritize during a busy sprint. To solve this, the CVSS framework groups these numerical ranges into qualitative Severity labels.
 
 As shown in the dashboard table, the mapping directly follows the official CVSS v3.1 standard:
 
-*Info (0.0):* Best practice reminders or informational alerts. No actual exploit exists.
-*Low (0.1 – 3.9):* Minor issues that are difficult to exploit, require high privileges, or have almost zero impact.
-*Medium (4.0 – 6.9):* Vulnerabilities that require very specific, unusual conditions to exploit or have limited, contained impact.
-*High (7.0 – 8.9):* Easily exploitable issues that could cause significant data loss or system compromise. These require prompt attention.
-*Critical (9.0 – 10.0):* The "drop everything and fix this now" vulnerabilities. These are typically exploitable remotely over the internet by anonymous attackers, require zero user interaction, and result in total system compromise.
+* *Info (0.0):* Best practice reminders or informational alerts. No actual exploit exists.
+
+* *Low (0.1 – 3.9):* Minor issues that are difficult to exploit, require high privileges, or have almost zero impact.
+
+* *Medium (4.0 – 6.9):* Vulnerabilities that require very specific, unusual conditions to exploit or have limited, contained impact.
+
+* *High (7.0 – 8.9):* Easily exploitable issues that could cause significant data loss or system compromise. These require prompt attention.
+
+* *Critical (9.0 – 10.0):* The "drop everything and fix this now" vulnerabilities. These are typically exploitable remotely over the internet by anonymous attackers, require zero user interaction, and result in total system compromise.
 
 When the underlying tools (like Bandit, Semgrep, or Nikto) find a flaw, they assign it a base CVSS score. The pipeline catches that number, drops it into the correct severity bucket for human readability, and uses it to calculate your overall Threat Level percentage.
